@@ -1,0 +1,89 @@
+# ==============================================================
+# Orion-Lite 配置文件
+# 模型: GhostNetV2 + Coordinate Attention
+# 数据集: Market-1501
+# 硬件: Apple M1 Pro (MPS)
+# ==============================================================
+
+MODEL:
+  DEVICE: "mps"
+  NAME: "orion_lite_ghostnetv2"
+  PRETRAINED: true
+  
+  BACKBONE:
+    NAME: "ghostnetv2_100"
+    PRETRAINED: true
+    LAST_STRIDE: 1
+    
+  HEAD:
+    NAME: "BNNeckHead"
+    FEAT_DIM: 512
+    POOL_TYPE: "avg"
+    NECK: "bnneck"
+    NECK_FEAT: "after"
+    
+  ATTENTION:
+    ENABLED: true
+    TYPE: "coord"
+    REDUCTION: 32
+
+DATA:
+  DATASET: "Market1501"
+  ROOT: "./data"
+  HEIGHT: 256
+  WIDTH: 128
+  
+  AUGMENTATION:
+    RE_PROB: 0.5
+    PADDING: 10
+    FLIP_PROB: 0.5
+    JITTER: 0.0
+    
+  NORM:
+    MEAN: [0.485, 0.456, 0.406]
+    STD: [0.229, 0.224, 0.225]
+
+TRAIN:
+  EPOCHS: 60
+  BATCH_SIZE: 64
+  NUM_WORKERS: 4
+  
+  SAMPLER:
+    NAME: "pk"
+    NUM_INSTANCES: 4
+
+LOSS:
+  ID:
+    ENABLED: true
+    LABEL_SMOOTH: 0.1
+    SCALE: 1.0
+    
+  TRIPLET:
+    ENABLED: true
+    MARGIN: 0.3
+    HARD_MINING: true
+    SCALE: 1.0
+
+SOLVER:
+  OPTIMIZER: "adam"
+  BASE_LR: 0.00035
+  WEIGHT_DECAY: 0.0005
+  
+  LR_SCHEDULER:
+    NAME: "warmup_cosine"
+    WARMUP_EPOCHS: 10
+    WARMUP_FACTOR: 0.01
+    
+  FP16: false
+
+TEST:
+  BATCH_SIZE: 128
+  EVAL_PERIOD: 5
+  RE_RANKING: false
+  FEAT_NORM: true
+
+OUTPUT:
+  DIR: "./logs/market1501_ghostnetv2"
+  CHECKPOINT_DIR: "./checkpoints"
+  LOG_PERIOD: 50
+  SAVE_PERIOD: 10
