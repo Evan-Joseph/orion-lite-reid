@@ -55,7 +55,6 @@ class BNNeckHead(nn.Module):
             self.reduce = nn.Sequential(
                 nn.Conv2d(in_channels, feat_dim, kernel_size=1, bias=False),
                 nn.BatchNorm2d(feat_dim),
-                nn.ReLU(inplace=True),
             )
         else:
             self.reduce = nn.Identity()

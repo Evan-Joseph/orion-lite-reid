@@ -41,28 +41,53 @@ class MobileNetV4Backbone(nn.Module):
         pretrained: bool = True,
         with_coord_att: bool = True,
         coord_att_reduction: int = 32,
+        last_stride: int = 1,  # BoT trick: stride=1 保留更多空间细节
     ):
         super(MobileNetV4Backbone, self).__init__()
         
         self.model_name = model_name
         
-        # 使用 timm 加载完整模型，移除分类头
+        # 使用 timm 加载完整模型
+        # 注意：我们需要使用 forward_features 来获取空间特征图
         self.backbone = timm.create_model(
             model_name,
             pretrained=pretrained,
-            num_classes=0,  # 移除分类头，返回特征
+            num_classes=0,
+            features_only=False,
         )
+        
+        # BoT Trick: Last Stride = 1
+        # 将 Block 3 的下采样 stride 从 2 改为 1
+        # 这使特征图从 8x4 变为 16x8，保留 4 倍的空间信息
+        if last_stride == 1:
+            try:
+                # Block 3 的第一个 UniversalInvertedResidual 包含下采样
+                block3_first = self.backbone.blocks[3][0]
+                if hasattr(block3_first, 'dw_mid') and hasattr(block3_first.dw_mid, 'conv'):
+                    original_stride = block3_first.dw_mid.conv.stride
+                    block3_first.dw_mid.conv.stride = (1, 1)
+                    print(f"  Last Stride: {original_stride} → (1, 1) [BoT Trick Enabled]")
+            except Exception as e:
+                print(f"  Warning: Could not modify last stride: {e}")
         
         # 获取输出通道数
         with torch.no_grad():
             dummy_input = torch.randn(2, 3, 256, 128)
             self.backbone.eval()
-            dummy_output = self.backbone(dummy_input)
+            dummy_output = self.backbone.forward_features(dummy_input)
             self.out_channels = dummy_output.shape[1]
+            self._feature_map_size = (dummy_output.shape[2], dummy_output.shape[3])
+            print(f"  MobileNetV4 Feature Map: {self.out_channels} channels, {self._feature_map_size} spatial")
         
-        # 可选的 Coordinate Attention（在全局池化后不适用）
-        # MobileNetV4 输出已经是向量，无法应用空间注意力
-        self.with_coord_att = False  # MobileNetV4 输出已池化
+        # 可选的 Coordinate Attention
+        self.with_coord_att = with_coord_att and self._feature_map_size[0] > 1
+        if self.with_coord_att:
+            self.coord_att = CoordAtt(
+                inp=self.out_channels,
+                oup=self.out_channels,
+                reduction=coord_att_reduction,
+            )
+            print(f"  Coordinate Attention: Enabled (reduction={coord_att_reduction})")
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -72,12 +97,14 @@ class MobileNetV4Backbone(nn.Module):
             x: 输入图像，形状 (B, 3, H, W)
             
         Returns:
-            特征，形状 (B, C, 1, 1)
+            特征图，形状 (B, C, H', W')
         """
-        feat = self.backbone(x)  # (B, C)
+        # 使用 forward_features 获取空间特征图
+        feat = self.backbone.forward_features(x)  # (B, C, H', W')
         
-        # 转换为 (B, C, 1, 1) 以兼容 BNNeck Head
-        feat = feat.view(feat.size(0), feat.size(1), 1, 1)
+        # 应用 Coordinate Attention (如果启用)
+        if self.with_coord_att:
+            feat = self.coord_att(feat)
         
         return feat
     

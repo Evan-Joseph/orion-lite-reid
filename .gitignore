@@ -114,3 +114,8 @@ runs/
 DetReIDX_*.pdf
 *_Access_Request*.pdf
 *_Support_Letter*.pdf
+*.pth
+backups/
+checkpoints/
+logs/
+debug_vis/
