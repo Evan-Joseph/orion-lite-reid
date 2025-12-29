@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
-"""训练/评估引擎"""
+"""训练/评估引擎模块"""
 
-# TODO: 实现后启用这些导入
-# from .trainer import Trainer
-# from .evaluator import ReIDEvaluator
+from .trainer import Trainer
+from .evaluator import Evaluator
+
+__all__ = [
+    'Trainer',
+    'Evaluator',
+]
