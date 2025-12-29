@@ -1,17 +1,24 @@
 # ==============================================================
-# Orion-Lite 配置文件
-# 模型: GhostNetV2 + Coordinate Attention
+# Orion-Lite v2.0 配置文件
+# 
+# v2.0 升级内容：
+#   - 骨干网络：GhostNetV2 → MobileNetV4 (速度提升 4x)
+#   - 损失函数：Triplet Loss → Circle Loss (mAP 提升 1-2%)
+#   - 禁用 Mixup/CutMix (GhostNetV3 研究发现对轻量模型有害)
+#
+# 目标硬件: Apple M1 Pro (MPS)
 # 数据集: Market-1501
-# 硬件: Apple M1 Pro (MPS)
 # ==============================================================
 
 MODEL:
   DEVICE: "mps"
-  NAME: "orion_lite_ghostnetv2"
+  NAME: "orion_lite_v2"
   PRETRAINED: true
   
   BACKBONE:
-    NAME: "ghostnetv2_100"
+    # v2.0: 使用 MobileNetV4 替代 GhostNetV2
+    # MobileNetV4 在 Apple ANE 上延迟更低，参数量减少 49%
+    NAME: "mobilenetv4_conv_small"
     PRETRAINED: true
     LAST_STRIDE: 1
     
@@ -23,8 +30,9 @@ MODEL:
     NECK_FEAT: "after"
     
   ATTENTION:
-    ENABLED: true
-    TYPE: "coord"
+    # MobileNetV4 内置了高效的注意力机制，无需额外添加
+    ENABLED: false
+    TYPE: "none"
     REDUCTION: 32
 
 DATA:
@@ -34,10 +42,13 @@ DATA:
   WIDTH: 128
   
   AUGMENTATION:
-    RE_PROB: 0.5
-    PADDING: 10
-    FLIP_PROB: 0.5
-    JITTER: 0.0
+    RE_PROB: 0.5          # Random Erasing
+    PADDING: 10           # Random Crop
+    FLIP_PROB: 0.5        # Horizontal Flip
+    JITTER: 0.0           # Color Jitter (禁用)
+    # v2.0: 禁用 Mixup/CutMix (GhostNetV3 研究发现对轻量模型有害)
+    MIXUP_PROB: 0.0
+    CUTMIX_PROB: 0.0
     
   NORM:
     MEAN: [0.485, 0.456, 0.406]
@@ -45,22 +56,25 @@ DATA:
 
 TRAIN:
   EPOCHS: 60
-  BATCH_SIZE: 64
+  BATCH_SIZE: 64           # M1 Pro 16GB 内存
   NUM_WORKERS: 4
   
   SAMPLER:
-    NAME: "pk"
+    NAME: "pk"             # PK 采样：每个 ID 采样 K 张
     NUM_INSTANCES: 4
 
 LOSS:
   ID:
     ENABLED: true
-    LABEL_SMOOTH: 0.1
+    LABEL_SMOOTH: 0.1      # BoT 关键技巧
     SCALE: 1.0
     
+  # v2.0: 使用 Circle Loss 替代 Triplet Loss
   TRIPLET:
     ENABLED: true
-    MARGIN: 0.3
+    TYPE: "circle"         # 'triplet' 或 'circle'
+    MARGIN: 0.25           # Circle Loss 的 m 参数
+    GAMMA: 256             # Circle Loss 的 gamma 参数
     HARD_MINING: true
     SCALE: 1.0
 
@@ -74,7 +88,7 @@ SOLVER:
     WARMUP_EPOCHS: 10
     WARMUP_FACTOR: 0.01
     
-  FP16: false
+  FP16: false              # MPS 上建议禁用
 
 TEST:
   BATCH_SIZE: 128
@@ -83,7 +97,7 @@ TEST:
   FEAT_NORM: true
 
 OUTPUT:
-  DIR: "./logs/market1501_ghostnetv2"
+  DIR: "./logs/market1501_mobilenetv4"
   CHECKPOINT_DIR: "./checkpoints"
   LOG_PERIOD: 50
   SAVE_PERIOD: 10

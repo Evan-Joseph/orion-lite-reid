@@ -108,3 +108,9 @@ data/*.tar.gz
 
 # TensorBoard
 runs/
+
+# Private documents (数据集申请材料)
+*.pdf
+DetReIDX_*.pdf
+*_Access_Request*.pdf
+*_Support_Letter*.pdf

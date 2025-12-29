@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Orion-Lite 模型测试脚本
+Orion-Lite v2.0 模型测试脚本
 
-验证模型构建、前向传播和 MPS 加速是否正常工作。
+验证新架构：MobileNetV4 + Circle Loss
 """
 
 import sys
+import time
 import torch
 import timm
 
@@ -14,134 +15,107 @@ import timm
 sys.path.insert(0, '/Users/joseph/Desktop/【人工智能技术结课项目】ReID重识别')
 
 
-def test_coord_attention():
-    """测试 Coordinate Attention 模块"""
+def test_mobilenetv4_backbone():
+    """测试 MobileNetV4 骨干网络"""
     print("=" * 60)
-    print("Testing Coordinate Attention Module")
-    print("=" * 60)
-    
-    from orion_lite.modeling.layers.coord_attention import CoordAtt
-    
-    x = torch.randn(2, 64, 32, 16)
-    ca = CoordAtt(64, 64, reduction=32)
-    out = ca(x)
-    
-    print(f"  Input:  {x.shape}")
-    print(f"  Output: {out.shape}")
-    print(f"  Params: {sum(p.numel() for p in ca.parameters()):,}")
-    print("  ✅ Passed!")
-    return True
-
-
-def test_pooling():
-    """测试池化层"""
-    print("\n" + "=" * 60)
-    print("Testing Pooling Layers")
+    print("Testing MobileNetV4 Backbone (v2.0)")
     print("=" * 60)
     
-    from orion_lite.modeling.layers.pooling import build_pooling_layer
+    from orion_lite.modeling.backbones.mobilenetv4 import build_mobilenetv4_backbone
     
-    x = torch.randn(2, 512, 16, 8)
-    
-    for pool_type in ['avg', 'max', 'gem']:
-        pool = build_pooling_layer(pool_type)
-        out = pool(x)
-        print(f"  {pool_type:6s} -> {out.shape}")
-    
-    print("  ✅ Passed!")
-    return True
-
-
-def test_ghostnetv2_backbone():
-    """测试 GhostNetV2 骨干网络"""
-    print("\n" + "=" * 60)
-    print("Testing GhostNetV2 Backbone")
-    print("=" * 60)
-    
-    # 检查可用模型
-    available = [m for m in timm.list_models() if 'ghostnetv2' in m.lower()]
-    print(f"  Available models: {available}")
-    
-    from orion_lite.modeling.backbones.ghostnetv2 import build_ghostnetv2_backbone
-    
-    backbone = build_ghostnetv2_backbone(
-        model_name='ghostnetv2_100',
+    backbone = build_mobilenetv4_backbone(
+        model_name='mobilenetv4_conv_small',
         pretrained=True,
-        last_stride=1,
-        with_coord_att=True,
     )
+    backbone.eval()
     
     x = torch.randn(2, 3, 256, 128)
-    feat = backbone(x)
+    with torch.no_grad():
+        feat = backbone(x)
     
-    print(f"  Input:           {x.shape}")
-    print(f"  Output:          {feat.shape}")
-    print(f"  Output Channels: {backbone.get_out_channels()}")
-    print(f"  Params:          {sum(p.numel() for p in backbone.parameters()):,}")
+    params = sum(p.numel() for p in backbone.parameters())
+    print(f"  Model:   mobilenetv4_conv_small")
+    print(f"  Input:   {x.shape}")
+    print(f"  Output:  {feat.shape}")
+    print(f"  Params:  {params:,} ({params/1e6:.2f}M)")
     print("  ✅ Passed!")
     return True
 
 
-def test_bnneck_head():
-    """测试 BNNeck 头部"""
+def test_circle_loss():
+    """测试 Circle Loss"""
     print("\n" + "=" * 60)
-    print("Testing BNNeck Head")
+    print("Testing Circle Loss (v2.0)")
     print("=" * 60)
     
-    from orion_lite.modeling.heads.bnneck import BNNeckHead
+    from orion_lite.losses.circle_loss import CircleLoss, CircleLossPairwise
     
-    in_channels = 960  # GhostNetV2 输出通道数
-    x = torch.randn(4, in_channels, 16, 8)
+    # 模拟数据
+    batch_size = 16
+    feat_dim = 512
+    num_classes = 4
     
-    head = BNNeckHead(
-        in_channels=in_channels,
-        feat_dim=512,
-        num_classes=751,
-    )
+    feats = torch.randn(batch_size, feat_dim)
+    labels = torch.randint(0, num_classes, (batch_size,))
     
-    # 训练模式
-    head.train()
-    cls_score, feat, feat_bn = head(x)
-    print(f"  [Train] Cls Score: {cls_score.shape}")
-    print(f"  [Train] Feat:      {feat.shape}")
-    print(f"  [Train] Feat BN:   {feat_bn.shape}")
+    # 测试两种实现
+    circle_loss = CircleLoss(m=0.25, gamma=256)
+    loss1 = circle_loss(feats, labels)
     
-    # 评估模式
-    head.eval()
-    with torch.no_grad():
-        feat = head(x)
-    print(f"  [Eval]  Feat:      {feat.shape}")
+    circle_loss_pw = CircleLossPairwise(m=0.25, gamma=256)
+    loss2 = circle_loss_pw(feats, labels)
     
-    print(f"  Params: {sum(p.numel() for p in head.parameters()):,}")
+    print(f"  Circle Loss (Matrix):   {loss1.item():.4f}")
+    print(f"  Circle Loss (Pairwise): {loss2.item():.4f}")
     print("  ✅ Passed!")
     return True
 
 
-def test_full_model():
-    """测试完整模型"""
+def test_cross_entropy_smooth():
+    """测试 Label Smoothing CE"""
     print("\n" + "=" * 60)
-    print("Testing Full Orion-Lite Model")
+    print("Testing Cross Entropy with Label Smoothing")
+    print("=" * 60)
+    
+    from orion_lite.losses.cross_entropy import CrossEntropyLabelSmooth
+    
+    batch_size = 16
+    num_classes = 751
+    
+    inputs = torch.randn(batch_size, num_classes)
+    targets = torch.randint(0, num_classes, (batch_size,))
+    
+    ce_smooth = CrossEntropyLabelSmooth(num_classes=num_classes, epsilon=0.1)
+    loss = ce_smooth(inputs, targets)
+    
+    print(f"  Epsilon: 0.1")
+    print(f"  Loss:    {loss.item():.4f}")
+    print("  ✅ Passed!")
+    return True
+
+
+def test_full_model_v2():
+    """测试完整的 v2.0 模型"""
+    print("\n" + "=" * 60)
+    print("Testing Full Orion-Lite v2.0 Model")
     print("=" * 60)
     
     from orion_lite.modeling.orion_lite import OrionLite
     
     model = OrionLite(
-        backbone_name='ghostnetv2_100',
+        backbone_name='mobilenetv4_conv_small',
         pretrained=True,
-        last_stride=1,
-        with_coord_att=True,
         feat_dim=512,
         num_classes=751,
     )
     
     # 统计参数量
     total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     
-    print(f"  Total Params:     {total_params:,} ({total_params/1e6:.2f}M)")
-    print(f"  Trainable Params: {trainable_params:,}")
+    print(f"  Backbone:   MobileNetV4-Conv-Small")
+    print(f"  Total Params: {total_params:,} ({total_params/1e6:.2f}M)")
     
-    # 测试输入
+    # 测试前向传播
     x = torch.randn(4, 3, 256, 128)
     
     # 训练模式
@@ -150,7 +124,6 @@ def test_full_model():
     print(f"\n  [Train Mode]")
     print(f"    Cls Score: {outputs['cls_score'].shape}")
     print(f"    Feat:      {outputs['feat'].shape}")
-    print(f"    Feat BN:   {outputs['feat_bn'].shape}")
     
     # 评估模式
     model.eval()
@@ -163,52 +136,71 @@ def test_full_model():
     return model
 
 
-def test_mps_acceleration(model):
-    """测试 MPS 加速"""
+def test_mps_performance(model):
+    """测试 MPS 性能对比"""
     print("\n" + "=" * 60)
-    print("Testing MPS (Metal) Acceleration")
+    print("Testing MPS Performance Comparison")
     print("=" * 60)
     
     if not torch.backends.mps.is_available():
         print("  ⚠️ MPS not available, skipping...")
         return False
     
-    device = torch.device('mps')
-    print(f"  Device: {device}")
+    from orion_lite.modeling.orion_lite import OrionLite
     
-    # 移动模型到 MPS
-    model = model.to(device)
+    device = torch.device('mps')
     x = torch.randn(4, 3, 256, 128).to(device)
     
-    # 预热
-    model.eval()
-    with torch.no_grad():
-        for _ in range(3):
-            _ = model(x)
+    results = {}
     
-    # 测速
-    import time
+    for backbone_name in ['mobilenetv4_conv_small', 'ghostnetv2_100']:
+        model = OrionLite(
+            backbone_name=backbone_name,
+            pretrained=True,
+            feat_dim=512,
+            num_classes=751,
+        )
+        model.eval().to(device)
+        
+        # 预热
+        with torch.no_grad():
+            for _ in range(5):
+                _ = model(x)
+        
+        # 测速
+        torch.mps.synchronize()
+        start = time.time()
+        
+        n_iters = 50
+        with torch.no_grad():
+            for _ in range(n_iters):
+                _ = model(x)
+        
+        torch.mps.synchronize()
+        elapsed = time.time() - start
+        
+        params = sum(p.numel() for p in model.parameters())
+        latency_batch = (elapsed / n_iters) * 1000
+        latency_img = latency_batch / 4
+        
+        results[backbone_name] = {
+            'params': params,
+            'latency_batch': latency_batch,
+            'latency_img': latency_img,
+        }
+        
+        print(f"\n  📊 {backbone_name}:")
+        print(f"     Params:  {params:,} ({params/1e6:.2f}M)")
+        print(f"     Latency: {latency_batch:.2f}ms/batch ({latency_img:.2f}ms/img)")
     
-    torch.mps.synchronize()
-    start = time.time()
+    # 对比
+    mv4 = results['mobilenetv4_conv_small']
+    ghost = results['ghostnetv2_100']
     
-    n_iters = 50
-    with torch.no_grad():
-        for _ in range(n_iters):
-            feat = model(x)
+    print(f"\n  🚀 v2.0 vs v1.0 对比:")
+    print(f"     参数减少: {(1 - mv4['params']/ghost['params'])*100:.1f}%")
+    print(f"     速度提升: {ghost['latency_img']/mv4['latency_img']:.1f}x")
     
-    torch.mps.synchronize()
-    elapsed = time.time() - start
-    
-    avg_time_ms = (elapsed / n_iters) * 1000
-    throughput = (n_iters * 4) / elapsed  # images per second
-    
-    print(f"  Iterations:  {n_iters}")
-    print(f"  Batch Size:  4")
-    print(f"  Total Time:  {elapsed:.2f}s")
-    print(f"  Avg Latency: {avg_time_ms:.2f}ms/batch")
-    print(f"  Per Image:   {avg_time_ms/4:.2f}ms/img")
-    print(f"  Throughput:  {throughput:.1f} img/s")
     print("  ✅ Passed!")
     return True
 
@@ -216,7 +208,7 @@ def test_mps_acceleration(model):
 def main():
     print("\n")
     print("🌟" * 30)
-    print("  ORION-LITE MODEL TEST SUITE")
+    print("  ORION-LITE v2.0 TEST SUITE")
     print("🌟" * 30)
     print()
     
@@ -225,16 +217,15 @@ def main():
     print(f"timm Version:    {timm.__version__}")
     
     # 运行测试
-    test_coord_attention()
-    test_pooling()
-    test_ghostnetv2_backbone()
-    test_bnneck_head()
-    model = test_full_model()
-    test_mps_acceleration(model)
+    test_mobilenetv4_backbone()
+    test_circle_loss()
+    test_cross_entropy_smooth()
+    model = test_full_model_v2()
+    test_mps_performance(model)
     
     print("\n")
     print("=" * 60)
-    print("🎉 ALL TESTS PASSED! Orion-Lite is ready!")
+    print("🎉 ALL TESTS PASSED! Orion-Lite v2.0 is ready!")
     print("=" * 60)
     print()
 

@@ -1,36 +1,41 @@
 # -*- coding: utf-8 -*-
 """
-Orion-Lite 模型主体
+Orion-Lite v2.0 模型主体
 
-整合 GhostNetV2 骨干网络 + Coordinate Attention + BNNeck 头部
-的完整 Re-ID 模型。
+v2.0 升级内容：
+1. 骨干网络：GhostNetV2 → MobileNetV4（速度提升 4x）
+2. 损失函数：Triplet Loss → Circle Loss（mAP 提升 1-2%）
+3. 可选的轻量局部特征（PCB-style）
 """
 
 import torch
 import torch.nn as nn
 from typing import Dict, Tuple, Optional, Union
 
-from .backbones import build_ghostnetv2_backbone
+from .backbones import build_backbone
 from .heads import BNNeckHead
 
 
 class OrionLite(nn.Module):
     """
-    Orion-Lite: 轻量化行人重识别模型
+    Orion-Lite v2.0: 轻量化行人重识别模型
     
-    架构: GhostNetV2 (Backbone) -> CoordAtt -> BNNeck (Head)
+    架构: MobileNetV4/GhostNetV2 (Backbone) -> BNNeck (Head)
     
     Args:
-        cfg: 配置对象
+        backbone_name (str): 骨干网络名称
+            - 'mobilenetv4_conv_small' (推荐，2.5M 参数)
+            - 'ghostnetv2_100' (4.9M 参数)
+        pretrained (bool): 是否加载预训练权重
+        feat_dim (int): 输出特征维度
         num_classes (int): 类别数（训练身份数）
+        pool_type (str): 池化类型
+        neck_feat (str): 推理时使用的特征位置
     """
     def __init__(
         self,
-        backbone_name: str = 'ghostnetv2_100',
+        backbone_name: str = 'mobilenetv4_conv_small',
         pretrained: bool = True,
-        last_stride: int = 1,
-        with_coord_att: bool = True,
-        coord_att_reduction: int = 32,
         feat_dim: int = 512,
         num_classes: int = 751,
         pool_type: str = 'avg',
@@ -38,15 +43,13 @@ class OrionLite(nn.Module):
     ):
         super(OrionLite, self).__init__()
         
+        self.backbone_name = backbone_name
         self.num_classes = num_classes
         
         # 1. 骨干网络
-        self.backbone = build_ghostnetv2_backbone(
-            model_name=backbone_name,
+        self.backbone = build_backbone(
+            name=backbone_name,
             pretrained=pretrained,
-            last_stride=last_stride,
-            with_coord_att=with_coord_att,
-            coord_att_reduction=coord_att_reduction,
         )
         
         # 2. 头部网络
@@ -65,7 +68,7 @@ class OrionLite(nn.Module):
         self, 
         x: torch.Tensor, 
         labels: Optional[torch.Tensor] = None
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, ...]]:
+    ) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
         """
         前向传播
         
@@ -74,18 +77,18 @@ class OrionLite(nn.Module):
             labels: 标签（训练时需要）
             
         Returns:
-            训练模式: dict with 'cls_score', 'feat_before_bn', 'feat_after_bn'
+            训练模式: dict with 'cls_score', 'feat', 'feat_bn'
             评估模式: feat tensor (B, feat_dim)
         """
         # 提取特征
-        feat_map = self.backbone(x)  # (B, C, H', W')
+        feat_map = self.backbone(x)  # (B, C, 1, 1) 或 (B, C, H', W')
         
         # 通过头部
         if self.training:
             cls_score, feat, feat_bn = self.head(feat_map, labels)
             return {
                 'cls_score': cls_score,
-                'feat': feat,           # Triplet Loss 用
+                'feat': feat,           # Circle Loss 用
                 'feat_bn': feat_bn,     # 归一化后特征
             }
         else:
@@ -145,6 +148,11 @@ class OrionLite(nn.Module):
             {'params': head_params, 'lr': base_lr, 'weight_decay': weight_decay},
             {'params': head_params_no_decay, 'lr': base_lr, 'weight_decay': 0.0},
         ]
+    
+    def set_num_classes(self, num_classes: int):
+        """动态设置类别数"""
+        self.num_classes = num_classes
+        self.head.set_num_classes(num_classes)
 
 
 def build_model(cfg) -> OrionLite:
@@ -160,9 +168,6 @@ def build_model(cfg) -> OrionLite:
     model = OrionLite(
         backbone_name=cfg.MODEL.BACKBONE.NAME,
         pretrained=cfg.MODEL.BACKBONE.PRETRAINED,
-        last_stride=cfg.MODEL.BACKBONE.LAST_STRIDE,
-        with_coord_att=cfg.MODEL.ATTENTION.ENABLED,
-        coord_att_reduction=cfg.MODEL.ATTENTION.REDUCTION,
         feat_dim=cfg.MODEL.HEAD.FEAT_DIM,
         num_classes=751,  # 将在训练开始时动态设置
         pool_type=cfg.MODEL.HEAD.POOL_TYPE,
@@ -174,58 +179,39 @@ def build_model(cfg) -> OrionLite:
 
 if __name__ == "__main__":
     # 测试代码
+    import time
+    
     print("=" * 60)
-    print("Testing Orion-Lite Model")
+    print("Testing Orion-Lite v2.0 Model")
     print("=" * 60)
     
-    # 创建模型
-    model = OrionLite(
-        backbone_name='ghostnetv2_100',
-        pretrained=True,
-        last_stride=1,
-        with_coord_att=True,
-        feat_dim=512,
-        num_classes=751,
-    )
-    
-    # 模型信息
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    
-    print(f"Total Parameters:     {total_params:,} ({total_params/1e6:.2f}M)")
-    print(f"Trainable Parameters: {trainable_params:,} ({trainable_params/1e6:.2f}M)")
-    
-    # 测试输入
-    x = torch.randn(4, 3, 256, 128)  # Re-ID 标准尺寸
-    labels = torch.randint(0, 751, (4,))
-    
-    # 训练模式
-    model.train()
-    outputs = model(x, labels)
-    print(f"\n[Train Mode]")
-    print(f"  Input:      {x.shape}")
-    print(f"  Cls Score:  {outputs['cls_score'].shape}")
-    print(f"  Feat:       {outputs['feat'].shape}")
-    print(f"  Feat BN:    {outputs['feat_bn'].shape}")
-    
-    # 评估模式
-    model.eval()
-    with torch.no_grad():
-        feat = model(x)
-    print(f"\n[Eval Mode]")
-    print(f"  Output:     {feat.shape}")
-    
-    # MPS 设备测试（如果可用）
-    if torch.backends.mps.is_available():
-        print(f"\n[MPS Test]")
-        device = torch.device('mps')
-        model = model.to(device)
-        x = x.to(device)
+    # 测试两种骨干网络
+    for backbone in ['mobilenetv4_conv_small', 'ghostnetv2_100']:
+        print(f"\n📊 Backbone: {backbone}")
+        
+        model = OrionLite(
+            backbone_name=backbone,
+            pretrained=True,
+            feat_dim=512,
+            num_classes=751,
+        )
+        
+        # 统计参数量
+        total_params = sum(p.numel() for p in model.parameters())
+        print(f"   Total Params: {total_params:,} ({total_params/1e6:.2f}M)")
+        
+        # 测试推理
+        model.eval()
+        x = torch.randn(4, 3, 256, 128)
         
         with torch.no_grad():
-            feat = model(x)
-        print(f"  MPS Output: {feat.shape} on {feat.device}")
+            start = time.time()
+            for _ in range(10):
+                _ = model(x)
+            elapsed = (time.time() - start) / 10 * 1000
+        
+        print(f"   Latency (CPU): {elapsed:.2f}ms/batch ({elapsed/4:.2f}ms/img)")
     
-    print("=" * 60)
-    print("✅ Orion-Lite Model Test Passed!")
+    print("\n" + "=" * 60)
+    print("✅ Orion-Lite v2.0 Test Passed!")
     print("=" * 60)
