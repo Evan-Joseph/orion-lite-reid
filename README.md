@@ -49,61 +49,66 @@ Orion-Lite/
 │   ├── configs/             # 配置文件
 │   ├── data/                # 数据加载与增强
 │   ├── engine/              # 训练/评估引擎
-│   ├── losses/              # 损失函数 (Circle Loss, CE)
-│   ├── metrics/             # 评估指标 (CMC, mAP)
+│   ├── losses/              # 损失函数 (Circle Loss, CE, Center Loss)
 │   ├── modeling/            # 模型定义
-│   │   ├── backbones/       # 骨干网络 (MobileNetV4, GhostNetV2)
-│   │   ├── heads/           # 头部网络 (BNNeck)
-│   │   └── layers/          # 自定义层 (CoordAtt, Pooling)
-│   ├── optim/               # 优化器与学习率调度
-│   └── utils/               # 工具函数
+│   │   ├── backbones/       # 骨干网络 (MobileNetV4)
+│   │   └── heads/           # 头部网络 (BNNeck)
+│   └── utils/               # 工具函数 (Re-ranking)
 ├── scripts/                 # 📜 主入口脚本
 │   ├── train.py             # 训练入口
-│   ├── test.py              # 测试入口
-│   └── demo.py              # 演示脚本
+│   └── evaluate.py          # 评估入口
+├── demo/                    # 🎬 演示脚本
+│   ├── app.py               # Web 演示 (Gradio)
+│   └── webcam_demo.py       # 本地实时摄像头演示
 ├── tools/                   # 🛠️ 工具脚本
-│   ├── deploy/              # 模型导出与部署
-│   └── visualize/           # 可视化工具
 ├── checkpoints/             # 💾 模型权重
-├── logs/                    # 📊 训练日志
-├── demo/                    # 🎬 演示资源
-├── docs/                    # 📚 文档
-└── assets/                  # 🖼️ 静态资源
+└── logs/                    # 📊 训练日志
 ```
 
 ---
 
 ## 🚀 快速开始
 
-### 环境配置
+### 1. 环境配置
 
 ```bash
 # 激活虚拟环境
 conda activate orion_lite
 
-# 验证 MPS 可用性
-python -c "import torch; print(f'MPS: {torch.backends.mps.is_available()}')"
+# 安装依赖
+pip install gradio ultralytics
 ```
 
-### 训练模型
+### 2. 训练模型
 
 ```bash
-python scripts/train.py --config orion_lite/configs/market1501_ghostnetv2.yaml
+python scripts/train.py --loss_type circle --circle_gamma 128 --epochs 150 --head_type bnneck
 ```
 
-### 评估模型
+### 3. 评估模型
 
 ```bash
-python scripts/test.py --config orion_lite/configs/market1501_ghostnetv2.yaml \
-                       --checkpoint checkpoints/orion_lite_best.pth
+python scripts/evaluate.py --checkpoint checkpoints/best.pth --rerank
 ```
 
-### 导出 CoreML
+### 4. 运行演示
+
+#### 📸 Web 界面演示 (Gradio)
+适合处理图片和视频文件，界面友好。
 
 ```bash
-python tools/deploy/export_coreml.py --checkpoint checkpoints/orion_lite_best.pth \
-                                     --output OrionLite.mlpackage
+python demo/app.py
 ```
+
+#### 📹 本地实时摄像头演示
+直接调用摄像头，低延迟，支持交互式目标添加。
+
+```bash
+python demo/webcam_demo.py
+```
+- **[A]**: 暂停画面并用鼠标框选目标
+- **[C]**: 清空所有目标
+- **[Q]**: 退出
 
 ---
 
@@ -118,8 +123,8 @@ python tools/deploy/export_coreml.py --checkpoint checkpoints/orion_lite_best.pt
 ┌─────────────────────────────────────────────────────────────┐
 │              MobileNetV4-Conv-Small Backbone                │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │  Universal Inverted Bottleneck (UIB)                 │   │
-│  │  参数量: ~2.5M | Apple ANE 优化                       │   │
+│  │  Last Stride = 1 (保留更多细节)                       │   │
+│  │  Coordinate Attention (增强空间感知)                  │   │
 │  └─────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -127,7 +132,7 @@ python tools/deploy/export_coreml.py --checkpoint checkpoints/orion_lite_best.pt
 ┌─────────────────────────────────────────────────────────────┐
 │                    BNNeck Head                               │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │  GAP → 1×1 Conv (1280→512) → BatchNorm → 双头输出     │   │
+│  │  GAP → 1×1 Conv (512维) → BatchNorm → 双头输出        │   │
 │  └─────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -141,15 +146,15 @@ python tools/deploy/export_coreml.py --checkpoint checkpoints/orion_lite_best.pt
 
 ---
 
-## 📊 性能指标
+## 📊 最终性能指标 (Market-1501)
 
-| 指标 | Orion-Lite | BoT (ResNet50) | 对比 |
-|------|------------|----------------|------|
-| **Rank-1** | ~92% | 94.5% | -2.5% |
-| **mAP** | ~79% | 85.9% | -6.9% |
-| **参数量** | 3.5M | 25M | **-86%** |
-| **推理延迟** | ~2.3ms | ~45ms | **-95%** |
-| **模型大小** | ~14MB | ~100MB | **-86%** |
+| 指标 | Orion-Lite v2.0 | BoT (ResNet50) | 说明 |
+|------|-----------------|----------------|------|
+| **Rank-1** (w/o Re-rank) | **82.48%** | 94.5% | 轻量级表现优异 |
+| **Rank-1** (w/ Re-rank) | **86.58%** | - | **接近重型模型** |
+| **mAP** (w/ Re-rank) | **80.06%** | 85.9% | 召回率极高 |
+| **参数量** | **3.46M** | 25M | **减少 86%** |
+| **推理延迟** (M1 Pro) | **~2.3ms** | ~45ms | **速度提升 20x** |
 
 ### M1 Pro 实测数据
 
