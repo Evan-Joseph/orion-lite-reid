@@ -119,3 +119,7 @@ backups/
 checkpoints/
 logs/
 debug_vis/
+
+# Markdown documentation
+*.md
+!README.md
