@@ -84,6 +84,10 @@ class Evaluator:
         query_loader: DataLoader,
         gallery_loader: DataLoader,
         max_rank: int = 50,
+        rerank: bool = False,
+        rerank_k1: int = 20,
+        rerank_k2: int = 6,
+        rerank_lambda: float = 0.3,
     ) -> Dict[str, float]:
         """
         执行评估
@@ -92,6 +96,10 @@ class Evaluator:
             query_loader: Query 数据加载器
             gallery_loader: Gallery 数据加载器
             max_rank: 最大 rank 值
+            rerank: 是否使用 k-reciprocal re-ranking
+            rerank_k1: re-ranking 参数 k1
+            rerank_k2: re-ranking 参数 k2
+            rerank_lambda: re-ranking 原始距离权重
             
         Returns:
             metrics: 评估指标字典
@@ -102,9 +110,20 @@ class Evaluator:
         print("📊 Extracting Gallery features...")
         g_feats, g_pids, g_camids = self.extract_features(gallery_loader)
         
-        print("🔍 Computing distance matrix...")
-        # 使用余弦相似度（因为已经 L2 归一化，所以直接矩阵乘法）
-        distmat = 1 - torch.mm(q_feats, g_feats.t()).numpy()
+        if rerank:
+            print("🔄 Applying K-Reciprocal Re-ranking...")
+            from ..utils.reranking import re_ranking
+            distmat = re_ranking(
+                q_feats.numpy(),
+                g_feats.numpy(),
+                k1=rerank_k1,
+                k2=rerank_k2,
+                lambda_value=rerank_lambda,
+            )
+        else:
+            print("🔍 Computing distance matrix...")
+            # 使用余弦相似度（因为已经 L2 归一化，所以直接矩阵乘法）
+            distmat = 1 - torch.mm(q_feats, g_feats.t()).numpy()
         
         print("📈 Computing CMC and mAP...")
         cmc, mAP = self.compute_metrics(
@@ -125,7 +144,7 @@ class Evaluator:
         
         # 打印结果
         print("=" * 50)
-        print("Evaluation Results")
+        print("Evaluation Results" + (" (with Re-ranking)" if rerank else ""))
         print("=" * 50)
         for name, value in metrics.items():
             print(f"  {name}: {value:.2f}%")
