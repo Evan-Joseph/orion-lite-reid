@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from orion_lite.modeling import OrionLite
 from orion_lite.data import build_train_dataloader, build_test_dataloader
-from orion_lite.losses import CircleLoss, CrossEntropyLabelSmooth, TripletLoss
+from orion_lite.losses import CircleLoss, CrossEntropyLabelSmooth, TripletLoss, CenterLoss
 from orion_lite.engine import Trainer, Evaluator
 from orion_lite.optim import build_scheduler
 from orion_lite.utils import setup_logger
@@ -79,6 +79,24 @@ def parse_args():
                         help='ID Loss 权重')
     parser.add_argument('--metric_loss_weight', type=float, default=1.0,
                         help='Metric Loss 权重')
+    
+    # 头部网络相关
+    parser.add_argument('--head_type', type=str, default='bnneck',
+                        choices=['bnneck', 'part'],
+                        help='头部类型: bnneck (全局) 或 part (全局+局部)')
+    parser.add_argument('--num_parts', type=int, default=2,
+                        help='Part-based 切片数量')
+    parser.add_argument('--pool_type', type=str, default='avg',
+                        choices=['avg', 'gem'],
+                        help='池化类型')
+    
+    # Center Loss 相关
+    parser.add_argument('--use_center_loss', action='store_true',
+                        help='启用 Center Loss')
+    parser.add_argument('--center_loss_weight', type=float, default=0.0005,
+                        help='Center Loss 权重')
+    parser.add_argument('--center_lr', type=float, default=0.5,
+                        help='Center Loss 学习率')
     
     parser.add_argument('--resume', type=str, default='', help='恢复训练')
     parser.add_argument('--eval_only', action='store_true', help='仅评估')
@@ -160,9 +178,12 @@ def main():
     logger.info("🏗️ Building Model...")
     model = OrionLite(
         backbone_name=args.backbone,
-        pretrained=True, # 确保下载预训练权重
+        pretrained=True,
         feat_dim=args.feat_dim,
         num_classes=num_classes,
+        pool_type=args.pool_type,
+        head_type=args.head_type,
+        num_parts=args.num_parts,
     )
     model = model.to(device)
     
@@ -190,6 +211,16 @@ def main():
         
     logger.info(f"  ID Loss: CrossEntropy + LabelSmooth (eps={args.label_smooth})")
     
+    # 构建 Center Loss (可选)
+    if args.use_center_loss:
+        center_loss_fn = CenterLoss(
+            num_classes=num_classes,
+            feat_dim=model.feat_dim,
+        ).to(device)
+        logger.info(f"  Center Loss: Enabled (weight={args.center_loss_weight}, lr={args.center_lr})")
+    else:
+        center_loss_fn = None
+    
     # 构建优化器
     logger.info("⚡ Building Optimizer...")
     param_groups = model.get_params_groups(
@@ -199,15 +230,15 @@ def main():
     optimizer = torch.optim.Adam(param_groups, lr=args.lr, weight_decay=args.weight_decay)
     logger.info(f"  Optimizer: Adam (lr={args.lr}, wd={args.weight_decay})")
     
-    # 构建学习率调度器
+    # 构建学习率调度器 - Warmup Cosine (优化版)
     scheduler = build_scheduler(
         optimizer=optimizer,
         scheduler_name='warmup_cosine',
         total_epochs=args.epochs,
         warmup_epochs=10,
-        warmup_factor=0.01,
+        warmup_factor=0.1,  # 更激进的预热 (之前是 0.01)
     )
-    logger.info(f"  Scheduler: Warmup Cosine (warmup=10 epochs)")
+    logger.info(f"  Scheduler: Warmup Cosine (warmup=10, warmup_factor=0.1)")
     
     # 构建训练器
     trainer = Trainer(
@@ -222,6 +253,9 @@ def main():
         checkpoint_dir=args.checkpoint_dir,
         id_loss_weight=args.id_loss_weight,
         metric_loss_weight=args.metric_loss_weight,
+        center_loss_fn=center_loss_fn,
+        center_loss_weight=args.center_loss_weight,
+        center_lr=args.center_lr,
     )
     
     # 构建评估器

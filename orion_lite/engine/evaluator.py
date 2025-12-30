@@ -111,9 +111,9 @@ class Evaluator:
         g_feats, g_pids, g_camids = self.extract_features(gallery_loader)
         
         if rerank:
-            print("🔄 Applying K-Reciprocal Re-ranking...")
-            from ..utils.reranking import re_ranking
-            distmat = re_ranking(
+            print("🔄 Applying K-Reciprocal Re-ranking (FAISS accelerated)...")
+            from ..utils.reranking_fast import re_ranking_fast
+            distmat = re_ranking_fast(
                 q_feats.numpy(),
                 g_feats.numpy(),
                 k1=rerank_k1,

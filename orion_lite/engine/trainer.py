@@ -7,6 +7,7 @@
 - 反向传播与参数更新
 - 学习率调度
 - 日志记录与检查点保存
+- Center Loss 支持
 """
 
 import os
@@ -36,6 +37,9 @@ class Trainer:
         checkpoint_dir: 检查点保存目录
         id_loss_weight: ID 损失权重
         metric_loss_weight: 度量损失权重
+        center_loss_fn: Center Loss 函数 (可选)
+        center_loss_weight: Center Loss 权重 (默认 0.0005)
+        center_lr: Center Loss 学习率 (默认为主学习率的 50 倍)
     """
     def __init__(
         self,
@@ -50,6 +54,9 @@ class Trainer:
         checkpoint_dir: str = './checkpoints',
         id_loss_weight: float = 1.0,
         metric_loss_weight: float = 1.0,
+        center_loss_fn: Optional[nn.Module] = None,
+        center_loss_weight: float = 0.0005,
+        center_lr: float = 0.5,
     ):
         self.model = model
         self.train_loader = train_loader
@@ -62,6 +69,17 @@ class Trainer:
         self.checkpoint_dir = checkpoint_dir
         self.id_loss_weight = id_loss_weight
         self.metric_loss_weight = metric_loss_weight
+        self.center_loss_fn = center_loss_fn
+        self.center_loss_weight = center_loss_weight
+        
+        # Center Loss 专用优化器
+        if center_loss_fn is not None:
+            self.center_optimizer = torch.optim.SGD(
+                center_loss_fn.parameters(), 
+                lr=center_lr
+            )
+        else:
+            self.center_optimizer = None
         
         # 创建检查点目录
         os.makedirs(checkpoint_dir, exist_ok=True)
@@ -87,6 +105,7 @@ class Trainer:
         total_loss = 0.0
         total_id_loss = 0.0
         total_metric_loss = 0.0
+        total_center_loss = 0.0
         total_correct = 0
         total_samples = 0
         
@@ -106,12 +125,29 @@ class Trainer:
             id_loss = self.id_loss_fn(cls_score, pids)
             metric_loss = self.metric_loss_fn(feat, pids)
             
-            loss = self.id_loss_weight * id_loss + self.metric_loss_weight * metric_loss
+            # 计算 Center Loss（如果启用）
+            if self.center_loss_fn is not None:
+                center_loss = self.center_loss_fn(feat, pids)
+                loss = (self.id_loss_weight * id_loss + 
+                       self.metric_loss_weight * metric_loss + 
+                       self.center_loss_weight * center_loss)
+                total_center_loss += center_loss.item()
+            else:
+                loss = self.id_loss_weight * id_loss + self.metric_loss_weight * metric_loss
             
             # 反向传播
             self.optimizer.zero_grad()
+            if self.center_optimizer is not None:
+                self.center_optimizer.zero_grad()
+            
             loss.backward()
+            
             self.optimizer.step()
+            if self.center_optimizer is not None:
+                # 论文建议：对中心的梯度乘以一个较小的学习率
+                for param in self.center_loss_fn.parameters():
+                    param.grad.data *= (1. / self.center_loss_weight)
+                self.center_optimizer.step()
             
             # 统计
             total_loss += loss.item()

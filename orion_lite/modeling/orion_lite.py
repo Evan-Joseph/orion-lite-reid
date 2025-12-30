@@ -5,7 +5,7 @@ Orion-Lite v2.0 模型主体
 v2.0 升级内容：
 1. 骨干网络：GhostNetV2 → MobileNetV4（速度提升 4x）
 2. 损失函数：Triplet Loss → Circle Loss（mAP 提升 1-2%）
-3. 可选的轻量局部特征（PCB-style）
+3. Part-based 局部特征 + GeM Pooling（新增）
 """
 
 import torch
@@ -13,14 +13,14 @@ import torch.nn as nn
 from typing import Dict, Tuple, Optional, Union
 
 from .backbones import build_backbone
-from .heads import BNNeckHead
+from .heads import BNNeckHead, PartBNNeckHead
 
 
 class OrionLite(nn.Module):
     """
     Orion-Lite v2.0: 轻量化行人重识别模型
     
-    架构: MobileNetV4/GhostNetV2 (Backbone) -> BNNeck (Head)
+    架构: MobileNetV4/GhostNetV2 (Backbone) -> BNNeck/PartBNNeck (Head)
     
     Args:
         backbone_name (str): 骨干网络名称
@@ -29,8 +29,12 @@ class OrionLite(nn.Module):
         pretrained (bool): 是否加载预训练权重
         feat_dim (int): 输出特征维度
         num_classes (int): 类别数（训练身份数）
-        pool_type (str): 池化类型
+        pool_type (str): 池化类型 'avg' / 'gem'
         neck_feat (str): 推理时使用的特征位置
+        head_type (str): 头部类型
+            - 'bnneck': 标准 BNNeck (全局特征)
+            - 'part': Part-based BNNeck (全局 + 局部特征)
+        num_parts (int): Part-based 切片数量（仅 head_type='part' 时有效）
     """
     def __init__(
         self,
@@ -40,11 +44,14 @@ class OrionLite(nn.Module):
         num_classes: int = 751,
         pool_type: str = 'avg',
         neck_feat: str = 'after',
+        head_type: str = 'bnneck',
+        num_parts: int = 2,
     ):
         super(OrionLite, self).__init__()
         
         self.backbone_name = backbone_name
         self.num_classes = num_classes
+        self.head_type = head_type
         
         # 1. 骨干网络
         self.backbone = build_backbone(
@@ -53,16 +60,25 @@ class OrionLite(nn.Module):
         )
         
         # 2. 头部网络
-        self.head = BNNeckHead(
-            in_channels=self.backbone.get_out_channels(),
-            feat_dim=feat_dim,
-            num_classes=num_classes,
-            pool_type=pool_type,
-            neck_feat=neck_feat,
-        )
-        
-        # 保存配置
-        self.feat_dim = feat_dim
+        if head_type == 'part':
+            self.head = PartBNNeckHead(
+                in_channels=self.backbone.get_out_channels(),
+                feat_dim=feat_dim // (1 + num_parts),  # 每个分支的维度
+                num_classes=num_classes,
+                num_parts=num_parts,
+                pool_type=pool_type if pool_type != 'avg' else 'gem',  # Part-based 默认用 GeM
+                neck_feat=neck_feat,
+            )
+            self.feat_dim = self.head.total_feat_dim
+        else:  # 'bnneck'
+            self.head = BNNeckHead(
+                in_channels=self.backbone.get_out_channels(),
+                feat_dim=feat_dim,
+                num_classes=num_classes,
+                pool_type=pool_type,
+                neck_feat=neck_feat,
+            )
+            self.feat_dim = feat_dim
     
     def forward(
         self, 
