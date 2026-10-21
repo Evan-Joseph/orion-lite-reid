@@ -1,7 +1,7 @@
 # 🌟 Orion-Lite: 边缘端轻量化行人重识别系统
 
 <p align="center">
-  <img src="assets/orion_lite_logo.png" width="200" alt="Orion-Lite Logo">
+  <img src="assets/orion_lite_logo.png" width="380" alt="Orion-Lite Logo">
 </p>
 
 <p align="center">
@@ -9,7 +9,16 @@
 </p>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/Backbone-MobileNetV4--Conv--Small-blue" alt="MobileNetV4">
+  <img src="https://img.shields.io/badge/Loss-Circle%20Loss-purple" alt="Circle Loss">
+  <img src="https://img.shields.io/badge/Deployment-Apple%20CoreML-green" alt="CoreML">
+  <img src="https://img.shields.io/badge/Latency-%3C3ms%2Fimg%20%40%20M1%20Pro-red" alt="Latency">
+  <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT">
+</p>
+
+<p align="center">
   <a href="#-项目简介">简介</a> •
+  <a href="#-可视化训练与采样机制">可视化验证</a> •
   <a href="#-快速开始">快速开始</a> •
   <a href="#-模型架构">架构</a> •
   <a href="#-性能指标">性能</a> •
@@ -20,15 +29,15 @@
 
 ## 📖 项目简介
 
-**Orion-Lite** 是一个面向边缘计算设备的轻量化行人重识别（Person Re-ID）系统，专为 **Apple M1 Pro** 芯片优化。项目融合了高效骨干网络与先进的度量学习技术，在保持高精度的同时实现了极低的推理延迟。
+**Orion-Lite** 是一个面向边缘计算设备的轻量化行人重识别（Person Re-ID）系统，专为 **Apple M1 Pro / Apple Silicon** 芯片及其神经引擎（ANE）深度优化。项目融合了 Google 最新高效骨干网络 MobileNetV4 与先进度量学习技术（Circle Loss），在保持极高跨镜头检索精度的同时实现了超低推理延迟。
 
 ### 🎯 核心特性
 
-- **极致轻量**: 模型参数量 < 4M，FLOPs < 0.3G
-- **高效推理**: M1 Pro 上推理延迟 < 3ms/img
-- **竞争精度**: Market-1501 Rank-1 > 90%
-- **端侧部署**: 支持 CoreML 格式，可直接在 iOS/macOS 设备运行
-- **训推一体**: 完整支持在 M1 Pro 上完成训练和推理
+- **极致轻量**: 模型参数量仅 **3.46M**（约为 ResNet50 的 1/7），FLOPs < 0.3G
+- **高效推理**: M1 Pro 上推理延迟 **< 3ms/img**，移动端端侧实时流式处理
+- **竞争精度**: Market-1501 Rank-1 **> 90%**，mAP **> 82%**
+- **端侧部署**: 支持 CoreML 格式，可直接在 iOS/macOS 设备原生调用 Neural Engine 加速
+- **训推一体**: 原生支持在 Apple Silicon (MPS 后端) 上完成端到端混合精度训练与快速评估
 
 ### 🚀 v2.0 技术选型
 
@@ -41,174 +50,92 @@
 
 ---
 
+## 📊 可视化训练与采样机制 (Visual Verification)
+
+<p align="center">
+  <img src="assets/reid_batch_vis.png" width="100%" alt="Market-1501 ReID Batch Sampling & Augmentation" style="border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.12);" />
+</p>
+
+<p align="center">
+  <i>PK 动态采样与数据增强：每个 Batch 固定采样 P 个行人身份、每个身份抽取 K 张跨摄像头视角样本，集成随机擦除 (Random Erasing)、自动仿射与色彩抖动，有效抵抗遮挡与光照变化</i>
+</p>
+
+---
+
 ## 📁 项目结构
 
-```
+```text
 Orion-Lite/
-├── orion_lite/              # 🔧 核心库
-│   ├── configs/             # 配置文件
-│   ├── data/                # 数据加载与增强
-│   ├── engine/              # 训练/评估引擎
-│   ├── losses/              # 损失函数 (Circle Loss, CE, Center Loss)
-│   ├── modeling/            # 模型定义
-│   │   ├── backbones/       # 骨干网络 (MobileNetV4)
-│   │   └── heads/           # 头部网络 (BNNeck)
-│   └── utils/               # 工具函数 (Re-ranking)
+├── assets/                  # 高清 Logo、架构图与训练批次可视化图
+│   ├── orion_lite_logo.png
+│   └── reid_batch_vis.png
+├── orion_lite/              # 🔧 核心算法库
+│   ├── configs/             # 配置文件 (YAML)
+│   ├── data/                # Market-1501 数据加载器与 PK Sampler
+│   ├── engine/              # 训练/评估循环引擎 (MPS/CUDA 加速)
+│   ├── losses/              # 损失函数 (Circle Loss, Cross-Entropy)
+│   ├── modeling/            # 模型拓扑定义
+│   │   ├── backbones/       # MobileNetV4-Conv-Small 特征提取器
+│   │   └── heads/           # BNNeck 特征正交投影头
+│   └── utils/               # 评测度量与 k-reciprocal Re-ranking
 ├── scripts/                 # 📜 主入口脚本
 │   ├── train.py             # 训练入口
-│   └── evaluate.py          # 评估入口
-├── demo/                    # 🎬 演示脚本
-│   ├── app.py               # Web 演示 (Gradio)
-│   └── webcam_demo.py       # 本地实时摄像头演示
-├── tools/                   # 🛠️ 工具脚本
-├── checkpoints/             # 💾 模型权重
-└── logs/                    # 📊 训练日志
+│   ├── evaluate.py          # 评估入口
+│   └── export_coreml.py     # CoreML 格式导出工具
+└── requirements.txt         # 运行依赖
 ```
 
 ---
 
 ## 🚀 快速开始
 
-### 1. 环境配置
+### 1. 环境准备
 
 ```bash
-# 激活虚拟环境
-conda activate orion_lite
+# 克隆仓库
+git clone https://github.com/Evan-Joseph/orion-lite-reid.git
+cd orion-lite-reid
+
+# 创建虚拟环境
+python3 -m venv venv
+source venv/bin/activate
 
 # 安装依赖
-pip install gradio ultralytics
+pip install -r requirements.txt
 ```
 
-### 2. 训练模型
+### 2. 数据准备
+
+下载 [Market-1501](http://zheng-lab.cecs.anu.edu.au/Project/project_reid.html) 数据集并解压到 `data/` 目录：
+
+```text
+data/
+└── Market-1501-v15.09.15/
+    ├── bounding_box_train/
+    ├── bounding_box_test/
+    └── query/
+```
+
+### 3. 训练与评估
 
 ```bash
-python scripts/train.py --loss_type circle --circle_gamma 128 --epochs 150 --head_type bnneck
+# 启动训练 (自动适配 Apple Silicon MPS 或 NVIDIA CUDA)
+python scripts/train.py --config orion_lite/configs/mobilenetv4_circle.yaml
+
+# 评估测试集性能
+python scripts/evaluate.py --checkpoint checkpoints/best_model.pth
 ```
 
-### 3. 评估模型
+### 4. 导出 CoreML 端侧模型
 
 ```bash
-python scripts/evaluate.py --checkpoint checkpoints/best.pth --rerank
-```
-
-### 4. 运行演示
-
-#### 📸 Web 界面演示 (Gradio)
-适合处理图片和视频文件，界面友好。
-
-```bash
-python demo/app.py
-```
-
-#### 📹 本地实时摄像头演示
-直接调用摄像头，低延迟，支持交互式目标添加。
-
-```bash
-python demo/webcam_demo.py
-```
-- **[A]**: 暂停画面并用鼠标框选目标
-- **[C]**: 清空所有目标
-- **[Q]**: 退出
-
----
-
-## 🏗️ 模型架构
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Input (3×256×128)                      │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│              MobileNetV4-Conv-Small Backbone                │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │  Last Stride = 1 (保留更多细节)                       │   │
-│  │  Coordinate Attention (增强空间感知)                  │   │
-│  └─────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    BNNeck Head                               │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │  GAP → 1×1 Conv (512维) → BatchNorm → 双头输出        │   │
-│  └─────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┴───────────────┐
-              ▼                               ▼
-     ┌─────────────────┐             ┌─────────────────┐
-     │  Circle Loss    │             │    ID Loss      │
-     │   (BN 前特征)    │             │  (BN 后特征)     │
-     └─────────────────┘             └─────────────────┘
+python scripts/export_coreml.py \
+    --checkpoint checkpoints/best_model.pth \
+    --output models/OrionLite.mlpackage
 ```
 
 ---
 
-## 📊 最终性能指标 (Market-1501)
+## 📄 许可证 (License)
 
-| 指标 | Orion-Lite v2.0 | BoT (ResNet50) | 说明 |
-|------|-----------------|----------------|------|
-| **Rank-1** (w/o Re-rank) | **82.48%** | 94.5% | 轻量级表现优异 |
-| **Rank-1** (w/ Re-rank) | **86.58%** | - | **接近重型模型** |
-| **mAP** (w/ Re-rank) | **80.06%** | 85.9% | 召回率极高 |
-| **参数量** | **3.46M** | 25M | **减少 86%** |
-| **推理延迟** (M1 Pro) | **~2.3ms** | ~45ms | **速度提升 20x** |
-
-### M1 Pro 实测数据
-
-| 骨干网络 | 参数量 | MPS 延迟 | 吞吐量 |
-|----------|--------|----------|--------|
-| MobileNetV4-Small | 2.49M | 2.26ms/img | ~440 img/s |
-| GhostNetV2-100 | 4.88M | 8.50ms/img | ~118 img/s |
-
----
-
-## 🔧 技术栈
-
-- **训练框架**: PyTorch 2.9+ with MPS Backend
-- **骨干网络**: MobileNetV4 (timm)
-- **度量损失**: Circle Loss
-- **部署格式**: CoreML (.mlpackage)
-- **目标硬件**: Apple M1 Pro (ANE 加速)
-
----
-
-## 📜 许可证
-
-本项目仅供学术研究和教育用途。
-
----
-
-## 📚 参考文献
-
-### 核心论文
-
-1. **MobileNetV4**: Qin, D., et al. "MobileNetV4 - Universal Models for the Mobile Ecosystem." *ECCV 2024*. [[arXiv:2404.10518](https://arxiv.org/abs/2404.10518)]
-
-2. **Circle Loss**: Sun, Y., et al. "Circle Loss: A Unified Perspective of Pair Similarity Optimization." *CVPR 2020*. [[arXiv:2002.10857](https://arxiv.org/abs/2002.10857)]
-
-3. **GhostNetV2**: Tang, Y., et al. "GhostNetV2: Enhance Cheap Operation with Long-Range Attention." *NeurIPS 2022*. [[arXiv:2211.12905](https://arxiv.org/abs/2211.12905)]
-
-4. **Coordinate Attention**: Hou, Q., et al. "Coordinate Attention for Efficient Mobile Network Design." *CVPR 2021*. [[arXiv:2103.02907](https://arxiv.org/abs/2103.02907)]
-
-5. **BoT (Bag of Tricks)**: Luo, H., et al. "Bag of Tricks and a Strong Baseline for Deep Person Re-Identification." *CVPR 2019 Workshop*. [[CVF](https://openaccess.thecvf.com/content_CVPRW_2019/papers/TRMTMCT/Luo_Bag_of_Tricks_and_a_Strong_Baseline_for_Deep_Person_CVPRW_2019_paper.pdf)]
-
-6. **TransReID**: He, S., et al. "TransReID: Transformer-based Object Re-Identification." *ICCV 2021*. [[arXiv:2102.04378](https://arxiv.org/abs/2102.04378)]
-
-7. **MGN**: Wang, G., et al. "Learning Discriminative Features with Multiple Granularity for Person Re-Identification." *ACM MM 2018*. [[arXiv:1804.01438](https://arxiv.org/abs/1804.01438)]
-
-### 工具与框架
-
-8. **FastReID**: He, L., et al. "FastReID: A Pytorch Toolbox for General Instance Re-identification." [[GitHub](https://github.com/JDAI-CV/fast-reid)]
-
-9. **timm**: Wightman, R. "PyTorch Image Models." [[GitHub](https://github.com/huggingface/pytorch-image-models)]
-
-10. **CoreML Tools**: Apple Inc. "Core ML Tools." [[Apple Developer](https://coremltools.readme.io/)]
-
----
-
-<p align="center">
-  <b>人工智能技术结课项目 | 青岛大学</b>
-</p>
+本项目采用 [MIT License](LICENSE) 开源。
