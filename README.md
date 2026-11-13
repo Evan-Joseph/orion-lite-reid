@@ -9,6 +9,7 @@
   <img src="https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch">
   <img src="https://img.shields.io/badge/Apple_Silicon-MPS%20%2F%20CoreML-000000?logo=apple&logoColor=white" alt="Apple Silicon">
   <img src="https://img.shields.io/badge/Dataset-Market--1501-4B8BBE" alt="Market-1501">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT"></a>
 </p>
 
 ---
@@ -108,7 +109,7 @@ orion-lite-reid/
 ├── demo/                       # 交互演示程序
 │   ├── app.py                  # Gradio 网页检索演示 (YOLOv8 检测 + Orion-Lite 检索)
 │   └── webcam_demo.py          # 本地摄像头实时框选与目标重识别追踪
-└── environment.yml             # Conda 环境配置文件
+└── requirements.txt            # Python 依赖声明文件
 ```
 
 ---
@@ -118,8 +119,9 @@ orion-lite-reid/
 ### 5.1 环境配置
 
 ```bash
-conda env create -f environment.yml
+conda create -n orion_lite python=3.11 -y
 conda activate orion_lite
+pip install -r requirements.txt
 ```
 
 ### 5.2 数据准备
@@ -173,3 +175,10 @@ python demo/webcam_demo.py
 3. Hou, Q., et al. "Coordinate Attention for Efficient Mobile Network Design." *CVPR 2021*.
 4. Luo, H., et al. "Bag of Tricks and a Strong Baseline for Deep Person Re-Identification." *CVPRW 2019*.
 5. Zhong, Z., et al. "Re-ranking Person Re-identification with k-reciprocal Encoding." *CVPR 2017*.
+
+---
+
+## 7. 开源许可
+
+本项目采用 [MIT License](LICENSE) 开源。
+

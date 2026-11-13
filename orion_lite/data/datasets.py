@@ -233,7 +233,8 @@ if __name__ == "__main__":
     import sys
     
     # 假设数据集路径
-    data_root = "/Users/joseph/Desktop/【人工智能技术结课项目】ReID重识别/data/Market-1501"
+    from pathlib import Path as _Path
+    data_root = str(_Path(__file__).resolve().parents[2] / "datasets" / "Market-1501-v15.09.15")
     
     print("Testing Market-1501 Dataset...")
     

@@ -11,7 +11,8 @@ import os
 import torch
 
 # 添加项目根目录到路径
-project_root = '/Users/joseph/Desktop/【人工智能技术结课项目】ReID重识别'
+from pathlib import Path as _Path
+project_root = str(_Path(__file__).resolve().parent.parent)
 sys.path.insert(0, project_root)
 
 from orion_lite.modeling import OrionLite

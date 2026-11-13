@@ -10,7 +10,8 @@ import sys
 import os
 
 # 添加项目根目录到路径
-sys.path.insert(0, '/Users/joseph/Desktop/【人工智能技术结课项目】ReID重识别')
+from pathlib import Path as _Path
+sys.path.insert(0, str(_Path(__file__).resolve().parent.parent))
 
 
 def test_transforms():
